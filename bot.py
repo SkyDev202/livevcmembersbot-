@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+Telegram Userbot Manager v6.0
+FIXED: sent_store blocking users, 199 user limit, proper campaign
+"""
 
 import os
 import sys
@@ -926,7 +931,6 @@ async def _run(c: Campaign, chat_id: int, mode: str):
         batch_count   = 0
 
         for idx, uid in enumerate(targets):
-            c.idx = idx
 
             if c.should_stop():
                 logger.info("Stop signal received")
@@ -956,6 +960,9 @@ async def _run(c: Campaign, chat_id: int, mode: str):
             elif result in ("skip", "fail"):
                 c.failed += 1
                 failed_uids.append(uid)
+
+            # Track processed count (1-based) for accurate ETA/progress.
+            c.idx = idx + 1
 
             # ── Progress update every 15s ──────────────────────────
             now = time.time()
@@ -1024,7 +1031,7 @@ async def _run(c: Campaign, chat_id: int, mode: str):
         total_p = c.sent + c.failed
         rate    = round(c.sent / total_p * 100, 1) if total_p else 0
 
-        remaining = targets[c.idx + 1:] if stopped else []
+        remaining = targets[c.idx:] if stopped else []
         st.save_progress(done_uids, remaining, failed_uids)
         sent_store.save()
         st.save()
