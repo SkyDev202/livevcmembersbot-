@@ -147,12 +147,12 @@ class State:
 
         # Timing — safe defaults
         self.random_delay      = True
-        self.min_delay         = 10
-        self.max_delay         = 18
-        self.batch_size        = 20
-        self.batch_delay       = 180
-        self.peer_flood_pause  = 900
-        self.flood_wait_extra  = 15
+        self.min_delay         = 1
+        self.max_delay         = 3
+        self.batch_size        = 500
+        self.batch_delay       = 30
+        self.peer_flood_pause  = 60
+        self.flood_wait_extra  = 10
 
         # KEY FIX: skip_already_sent DEFAULT = FALSE
         # so ALL members get messaged, not just 199
