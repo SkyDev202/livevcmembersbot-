@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Telegram Userbot Manager v6.0
-FIXED: sent_store blocking users, 199 user limit, proper campaign
-"""
 
 import os
 import sys
@@ -35,7 +30,7 @@ from telethon.tl.types import (
 # CONFIG
 # ═══════════════════════════════════════════════════
 
-BOT_TOKEN = "8653678456:AAEUFxjptitTYHPsbGVk-ep8qvoCNPvNaBU"
+BOT_TOKEN = "8334371634:AAFh2gTBZFDWBAy7vxpMcUS-WLQrGkslB04"
 API_ID    = 39052980
 API_HASH  = "5b0b6f9aedd2113a4a591dbcde61be43"
 ADMIN_ID  = 8624480309
@@ -147,12 +142,12 @@ class State:
 
         # Timing — safe defaults
         self.random_delay      = True
-        self.min_delay         = 1
-        self.max_delay         = 3
-        self.batch_size        = 500
-        self.batch_delay       = 30
-        self.peer_flood_pause  = 60
-        self.flood_wait_extra  = 10
+        self.min_delay         = 10
+        self.max_delay         = 18
+        self.batch_size        = 20
+        self.batch_delay       = 180
+        self.peer_flood_pause  = 900
+        self.flood_wait_extra  = 15
 
         # KEY FIX: skip_already_sent DEFAULT = FALSE
         # so ALL members get messaged, not just 199
@@ -495,146 +490,145 @@ async def fetch_saved_ids(count: int = None) -> list:
 
 async def send_one(uid: int, attempt: int = 0) -> str:
     """
-    Returns: ok | skip | flood_handled | peer_flood_handled | dead | fail
-    NEVER returns something that stops the campaign permanently
-    except 'dead' (session expired)
+    Returns: ok | skip | dead | fail
+    Flood/PeerFlood are handled internally with auto-wait + retry.
     """
-    if not await ensure_connected():
-        ok = await reconnect()
-        if not ok:
-            return "dead"
+    net_retry = 0
 
-    try:
-        if st.use_saved_forward and st._saved_msg_ids:
-            await userbot(ForwardMessagesRequest(
-                from_peer=InputPeerSelf(),
-                id=st._saved_msg_ids,
-                to_peer=uid,
-                drop_author=not st.forward_with_tag,
-                silent=False,
-            ))
-        elif st.media_file_id and st.send_media_only:
-            await userbot.send_file(
-                uid, st.media_file_id,
-                caption=st.media_caption or st.auto_message,
-            )
-        elif st.media_file_id and st.send_both:
-            await userbot.send_message(uid, st.auto_message)
-            await asyncio.sleep(0.5)
-            await userbot.send_file(
-                uid, st.media_file_id,
-                caption=st.media_caption
-            )
-        else:
-            await userbot.send_message(uid, st.auto_message)
+    while True:
+        if camp.should_stop():
+            return "fail"
 
-        st.stats["sent"] += 1
-        sent_store.add(uid)
-        logger.info(f"✅ Sent → {uid}")
-        return "ok"
+        if not await ensure_connected():
+            ok = await reconnect()
+            if not ok:
+                return "dead"
 
-    except errors.FloodWaitError as e:
-        wait = e.seconds + st.flood_wait_extra
-        st.stats["flood_waits"] += 1
-        logger.warning(f"⚠️ FloodWait {e.seconds}s, waiting {wait}s")
         try:
-            await bot.send_message(
-                ADMIN_ID,
-                f"⏳ **FloodWait {e.seconds}s**\n"
-                f"Sleeping {wait}s then continuing…\n"
-                f"Sent: {camp.sent}"
-            )
-        except Exception:
-            pass
-        # sleep in 1s chunks
-        for _ in range(wait):
-            if camp.should_stop():
-                return "fail"
-            await asyncio.sleep(1)
-        # retry after wait
-        if attempt < 3:
-            return await send_one(uid, attempt + 1)
-        st.stats["failed"] += 1
-        return "flood_handled"
+            if st.use_saved_forward and st._saved_msg_ids:
+                await userbot(ForwardMessagesRequest(
+                    from_peer=InputPeerSelf(),
+                    id=st._saved_msg_ids,
+                    to_peer=uid,
+                    drop_author=not st.forward_with_tag,
+                    silent=False,
+                ))
+            elif st.media_file_id and st.send_media_only:
+                await userbot.send_file(
+                    uid, st.media_file_id,
+                    caption=st.media_caption or st.auto_message,
+                )
+            elif st.media_file_id and st.send_both:
+                await userbot.send_message(uid, st.auto_message)
+                await asyncio.sleep(0.5)
+                await userbot.send_file(
+                    uid, st.media_file_id,
+                    caption=st.media_caption
+                )
+            else:
+                await userbot.send_message(uid, st.auto_message)
 
-    except errors.PeerFloodError:
-        st.stats["peer_floods"] += 1
-        pause = st.peer_flood_pause
-        logger.error(f"🚨 PeerFlood! Pausing {pause}s then CONTINUING")
-        try:
-            await bot.send_message(
-                ADMIN_ID,
-                f"🚨 **PeerFloodError**\n\n"
-                f"Sent: **{camp.sent}** | "
-                f"Progress: {camp.idx}/{camp.total}\n\n"
-                f"Pausing **{pause // 60}min** then "
-                f"**automatically continuing**.\n\n"
-                f"Do NOT stop — it will resume!"
-            )
-        except Exception:
-            pass
-        for _ in range(pause):
-            if camp.should_stop():
-                return "fail"
-            await asyncio.sleep(1)
-        st.stats["failed"] += 1
-        return "peer_flood_handled"
+            st.stats["sent"] += 1
+            sent_store.add(uid)
+            logger.info(f"✅ Sent → {uid}")
+            return "ok"
 
-    except (
-        errors.UserPrivacyRestrictedError,
-        errors.UserIsBlockedError,
-        errors.InputUserDeactivatedError,
-        errors.UserBannedInChannelError,
-        errors.ChatWriteForbiddenError,
-        errors.UserNotMutualContactError,
-    ):
-        if uid not in st.blacklisted_users:
-            st.blacklisted_users.append(uid)
-        st.stats["failed"] += 1
-        return "skip"
-
-    except (
-        errors.AuthKeyUnregisteredError,
-        errors.AuthKeyDuplicatedError,
-        errors.SessionRevokedError,
-    ) as e:
-        logger.error(f"Session dead: {e}")
-        try:
-            await bot.send_message(
-                ADMIN_ID,
-                "🔑 **Session Expired!**\n\n"
-                "Please /logout and login again."
-            )
-        except Exception:
-            pass
-        return "dead"
-
-    except (ConnectionError, OSError) as e:
-        logger.warning(f"Connection error {uid}: {e}")
-        for _ in range(10):
-            if camp.should_stop():
-                return "fail"
-            await asyncio.sleep(1)
-        if attempt < 3:
-            return await send_one(uid, attempt + 1)
-        st.stats["failed"] += 1
-        return "fail"
-
-    except Exception as e:
-        s = str(e).lower()
-        logger.error(f"send_one {uid}: {type(e).__name__}: {e}")
-        if "flood" in s or "too many" in s or "wait" in s:
-            for _ in range(60):
+        except errors.FloodWaitError as e:
+            wait = e.seconds + st.flood_wait_extra
+            st.stats["flood_waits"] += 1
+            logger.warning(f"⚠️ FloodWait {e.seconds}s, waiting {wait}s (uid={uid})")
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"⏳ **FloodWait {e.seconds}s**\n"
+                    f"Sleeping {wait}s then retrying same user.\n"
+                    f"UID: `{uid}` | Sent: {camp.sent}"
+                )
+            except Exception:
+                pass
+            for _ in range(wait):
                 if camp.should_stop():
                     return "fail"
                 await asyncio.sleep(1)
+            continue
+
+        except errors.PeerFloodError:
+            st.stats["peer_floods"] += 1
+            pause = st.peer_flood_pause
+            logger.error(f"🚨 PeerFlood! Pausing {pause}s, retry same user {uid}")
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"🚨 **PeerFloodError**\n\n"
+                    f"Sent: **{camp.sent}** | Progress: {camp.idx}/{camp.total}\n"
+                    f"UID: `{uid}`\n\n"
+                    f"Pausing **{pause // 60}min** then retrying same user."
+                )
+            except Exception:
+                pass
+            for _ in range(pause):
+                if camp.should_stop():
+                    return "fail"
+                await asyncio.sleep(1)
+            continue
+
+        except (
+            errors.UserPrivacyRestrictedError,
+            errors.UserIsBlockedError,
+            errors.InputUserDeactivatedError,
+            errors.UserBannedInChannelError,
+            errors.ChatWriteForbiddenError,
+            errors.UserNotMutualContactError,
+        ):
+            if uid not in st.blacklisted_users:
+                st.blacklisted_users.append(uid)
+            st.stats["failed"] += 1
+            return "skip"
+
+        except (
+            errors.AuthKeyUnregisteredError,
+            errors.AuthKeyDuplicatedError,
+            errors.SessionRevokedError,
+        ) as e:
+            logger.error(f"Session dead: {e}")
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    "🔑 **Session Expired!**\n\n"
+                    "Please /logout and login again."
+                )
+            except Exception:
+                pass
+            return "dead"
+
+        except (ConnectionError, OSError) as e:
+            net_retry += 1
+            logger.warning(f"Connection error {uid}: {e} (retry {net_retry})")
+            for _ in range(min(10 * net_retry, 60)):
+                if camp.should_stop():
+                    return "fail"
+                await asyncio.sleep(1)
+            if net_retry >= 8:
+                st.stats["failed"] += 1
+                return "fail"
+            continue
+
+        except Exception as e:
+            s = str(e).lower()
+            logger.error(f"send_one {uid}: {type(e).__name__}: {e}")
+            # Unknown flood-like text errors: wait and retry same user.
+            if "flood" in s or "too many" in s or "wait" in s:
+                for _ in range(60):
+                    if camp.should_stop():
+                        return "fail"
+                    await asyncio.sleep(1)
+                continue
             if attempt < 2:
-                return await send_one(uid, attempt + 1)
-        if attempt < 2:
-            await asyncio.sleep(5)
-            return await send_one(uid, attempt + 1)
-        st.stats["failed"] += 1
-        return "fail"
+                await asyncio.sleep(5)
+                attempt += 1
+                continue
+            st.stats["failed"] += 1
+            return "fail"
 
 
 # ═══════════════════════════════════════════════════
@@ -959,15 +953,9 @@ async def _run(c: Campaign, chat_id: int, mode: str):
                 st.save()
                 return
 
-            elif result in (
-                "skip", "fail",
-                "flood_handled",
-                "peer_flood_handled"
-            ):
+            elif result in ("skip", "fail"):
                 c.failed += 1
                 failed_uids.append(uid)
-                # NOTE: flood_handled and peer_flood_handled
-                # already waited inside send_one, so we just continue
 
             # ── Progress update every 15s ──────────────────────────
             now = time.time()
@@ -2401,23 +2389,31 @@ async def text_handler(ev):
             await ev.reply("❌ Send 1–10.")
 
     elif ls and ls.startswith("num_"):
-        parts = ls.split("_", 3)
-        if len(parts) == 4:
-            _, attr, mn_s, mx_s = parts
+        # Robust parser for states like:
+        # num_min_delay_1_3600
+        # num_peer_flood_pause_60_7200
+        raw = ls[4:]  # strip "num_"
+        try:
+            attr, mn_s, mx_s = raw.rsplit("_", 2)
             mn, mx = int(mn_s), int(mx_s)
-            try:
-                v = int(text)
-                if not (mn <= v <= mx):
-                    raise ValueError(f"Must be {mn}–{mx}")
-                setattr(st, attr, v)
-                st.login_state = None
-                st.save()
-                await ev.reply(
-                    f"✅ **{attr.replace('_',' ').title()}** → {v}",
-                    buttons=main_menu(ev.sender_id)
-                )
-            except ValueError as e:
-                await ev.reply(f"❌ {e}")
+            v = int(text)
+            if not (mn <= v <= mx):
+                raise ValueError(f"Must be {mn}–{mx}")
+            setattr(st, attr, v)
+            st.login_state = None
+            st.save()
+            await ev.reply(
+                f"✅ **{attr.replace('_',' ').title()}** → {v}",
+                buttons=main_menu(ev.sender_id)
+            )
+        except ValueError as e:
+            await ev.reply(f"❌ {e}")
+        except Exception:
+            st.login_state = None
+            await ev.reply(
+                "❌ Invalid setting state. Please open settings again.",
+                buttons=main_menu(ev.sender_id)
+            )
 
 
 # ═══════════════════════════════════════════════════
