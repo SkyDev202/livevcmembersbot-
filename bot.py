@@ -35,7 +35,7 @@ from telethon.tl.types import (
 # CONFIG
 # ═══════════════════════════════════════════════════
 
-BOT_TOKEN = "8334371634:AAFh2gTBZFDWBAy7vxpMcUS-WLQrGkslB04"
+BOT_TOKEN = "8653678456:AAEUFxjptitTYHPsbGVk-ep8qvoCNPvNaBU"
 API_ID    = 39052980
 API_HASH  = "5b0b6f9aedd2113a4a591dbcde61be43"
 ADMIN_ID  = 8624480309
