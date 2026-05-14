@@ -147,12 +147,14 @@ class State:
 
         # Timing — safe defaults
         self.random_delay      = True
-        self.min_delay         = 10
-        self.max_delay         = 18
-        self.batch_size        = 20
-        self.batch_delay       = 180
+        self.min_delay         = 5
+        self.max_delay         = 9
+        self.batch_size        = 35
+        self.batch_delay       = 90
         self.peer_flood_pause  = 900
         self.flood_wait_extra  = 15
+        self.max_flood_retries = 2
+        self.max_peer_retries  = 1
 
         # KEY FIX: skip_already_sent DEFAULT = FALSE
         # so ALL members get messaged, not just 199
@@ -185,6 +187,7 @@ class State:
         self._temp_client     = None
 
         self._load()
+        self._normalize_settings()
 
     def save(self):
         skip = {"login_state", "phone_code_hash", "pending_phone"}
@@ -211,6 +214,22 @@ class State:
         except Exception as e:
             logger.error(f"Config load error: {e}")
 
+    def _normalize_settings(self):
+        old_timing = (
+            self.min_delay == 10
+            and self.max_delay == 18
+            and self.batch_size == 20
+            and self.batch_delay == 180
+        )
+        if old_timing:
+            self.min_delay = 5
+            self.max_delay = 9
+            self.batch_size = 35
+            self.batch_delay = 90
+            logger.info("Timing upgraded to faster defaults")
+        if self.max_delay < self.min_delay:
+            self.max_delay = self.min_delay
+
     def reset_stats(self):
         self.stats = {
             "sent": 0, "failed": 0,
@@ -229,6 +248,8 @@ class State:
         return True
 
     def get_delay(self) -> float:
+        if self.max_delay < self.min_delay:
+            self.max_delay = self.min_delay
         if self.random_delay:
             return random.uniform(self.min_delay, self.max_delay)
         return float(self.min_delay)
@@ -493,15 +514,19 @@ async def fetch_saved_ids(count: int = None) -> list:
 # DM SENDER
 # ═══════════════════════════════════════════════════
 
-async def send_one(uid: int, attempt: int = 0) -> str:
+async def send_one(uid: int, attempt: int = 0, stop_check=None) -> str:
     """
-    Returns: ok | skip | dead | fail
-    Flood/PeerFlood are handled internally with auto-wait + retry.
+    Returns: ok | skip | dead | fail | rate_limited
+    FloodWait is retried for the same user. PeerFlood is bounded so a
+    campaign can save progress instead of getting stuck forever.
     """
     net_retry = 0
+    flood_retries = 0
+    peer_retries = 0
+    should_stop = stop_check or (lambda: False)
 
     while True:
-        if camp.should_stop():
+        if should_stop():
             return "fail"
 
         if not await ensure_connected():
@@ -525,7 +550,7 @@ async def send_one(uid: int, attempt: int = 0) -> str:
                 )
             elif st.media_file_id and st.send_both:
                 await userbot.send_message(uid, st.auto_message)
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
                 await userbot.send_file(
                     uid, st.media_file_id,
                     caption=st.media_caption
@@ -541,7 +566,13 @@ async def send_one(uid: int, attempt: int = 0) -> str:
         except errors.FloodWaitError as e:
             wait = e.seconds + st.flood_wait_extra
             st.stats["flood_waits"] += 1
+            flood_retries += 1
             logger.warning(f"⚠️ FloodWait {e.seconds}s, waiting {wait}s (uid={uid})")
+            if flood_retries > getattr(st, "max_flood_retries", 2):
+                logger.warning(
+                    f"FloodWait retry limit hit for {uid}; saving for resume"
+                )
+                return "rate_limited"
             try:
                 await bot.send_message(
                     ADMIN_ID,
@@ -552,15 +583,21 @@ async def send_one(uid: int, attempt: int = 0) -> str:
             except Exception:
                 pass
             for _ in range(wait):
-                if camp.should_stop():
+                if should_stop():
                     return "fail"
                 await asyncio.sleep(1)
             continue
 
         except errors.PeerFloodError:
             st.stats["peer_floods"] += 1
+            peer_retries += 1
             pause = st.peer_flood_pause
             logger.error(f"🚨 PeerFlood! Pausing {pause}s, retry same user {uid}")
+            if peer_retries > getattr(st, "max_peer_retries", 1):
+                logger.warning(
+                    f"PeerFlood retry limit hit for {uid}; saving for resume"
+                )
+                return "rate_limited"
             try:
                 await bot.send_message(
                     ADMIN_ID,
@@ -572,7 +609,7 @@ async def send_one(uid: int, attempt: int = 0) -> str:
             except Exception:
                 pass
             for _ in range(pause):
-                if camp.should_stop():
+                if should_stop():
                     return "fail"
                 await asyncio.sleep(1)
             continue
@@ -610,7 +647,7 @@ async def send_one(uid: int, attempt: int = 0) -> str:
             net_retry += 1
             logger.warning(f"Connection error {uid}: {e} (retry {net_retry})")
             for _ in range(min(10 * net_retry, 60)):
-                if camp.should_stop():
+                if should_stop():
                     return "fail"
                 await asyncio.sleep(1)
             if net_retry >= 8:
@@ -624,7 +661,7 @@ async def send_one(uid: int, attempt: int = 0) -> str:
             # Unknown flood-like text errors: wait and retry same user.
             if "flood" in s or "too many" in s or "wait" in s:
                 for _ in range(60):
-                    if camp.should_stop():
+                    if should_stop():
                         return "fail"
                     await asyncio.sleep(1)
                 continue
@@ -776,7 +813,7 @@ async def fetch_all_requests(
                 # Keep fetching until Telegram returns empty page.
                 # Do NOT stop just because page size < 100.
 
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.2)
 
             except errors.FloodWaitError as e:
                 logger.warning(f"Fetch FloodWait {e.seconds}s")
@@ -937,7 +974,7 @@ async def _run(c: Campaign, chat_id: int, mode: str):
                 break
 
             # ── SEND ───────────────────────────────────────────────
-            result = await send_one(uid)
+            result = await send_one(uid, stop_check=c.should_stop)
 
             # ── Process result ─────────────────────────────────────
             if result == "ok":
@@ -957,6 +994,23 @@ async def _run(c: Campaign, chat_id: int, mode: str):
                 st.save()
                 return
 
+            elif result == "rate_limited":
+                c.paused = True
+                c.pause_reason = "Rate limited - saved for resume"
+                remaining = targets[idx:]
+                st.save_progress(done_uids, remaining, failed_uids)
+                sent_store.save()
+                st.save()
+                await prog_msg.edit(
+                    f"⏸️ **Rate limit hit — paused safely**\n\n"
+                    f"✅ Sent: **{c.sent}** | ❌ Failed: **{c.failed}**\n"
+                    f"📊 Progress: **{idx}/{c.total}**\n\n"
+                    f"UID `{uid}` was not skipped. It is saved as the next "
+                    f"pending user.\n\n"
+                    f"Wait a while, then use **Resume**."
+                )
+                return
+
             elif result in ("skip", "fail"):
                 c.failed += 1
                 failed_uids.append(uid)
@@ -974,7 +1028,7 @@ async def _run(c: Campaign, chat_id: int, mode: str):
                 t_last_update = now
 
             # ── Save progress every 25 users or 45s ───────────────
-            if idx % 25 == 0 or (now - t_last_save) >= 45:
+            if (idx + 1) % 25 == 0 or (now - t_last_save) >= 45:
                 remaining = targets[idx + 1:]
                 st.save_progress(done_uids, remaining, failed_uids)
                 sent_store.save()
