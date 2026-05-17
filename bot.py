@@ -29,10 +29,10 @@ from telethon.tl.types import (
 # CONFIG
 # ═══════════════════════════════════════════════════
 
-BOT_TOKEN = "8843822482:AAHTNz67b2tNfVDbi5AaOHLZ25bVgmedXHs"
+BOT_TOKEN = "8746503686:AAEBiFjdK-QnwXxulQVeKjIB17rOuK9NDcA"
 API_ID    = 39052980
 API_HASH  = "5b0b6f9aedd2113a4a591dbcde61be43"
-ADMIN_ID  = 8754582810
+ADMIN_ID  = 7353041224
 
 CONFIG_FILE   = "config.json"
 PROGRESS_FILE = "progress.json"
