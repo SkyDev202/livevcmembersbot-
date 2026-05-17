@@ -32,7 +32,7 @@ from telethon.tl.types import (
 BOT_TOKEN = "8746503686:AAEBiFjdK-QnwXxulQVeKjIB17rOuK9NDcA"
 API_ID    = 39052980
 API_HASH  = "5b0b6f9aedd2113a4a591dbcde61be43"
-ADMIN_ID  = 7353041224
+ADMIN_ID  = 7708768335
 
 CONFIG_FILE   = "config.json"
 PROGRESS_FILE = "progress.json"
