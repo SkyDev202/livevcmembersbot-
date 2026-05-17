@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-Telegram Userbot Manager v6.0
-FIXED: sent_store blocking users, 199 user limit, proper campaign
-"""
-
 import os
 import sys
 import json
@@ -35,10 +29,10 @@ from telethon.tl.types import (
 # CONFIG
 # ═══════════════════════════════════════════════════
 
-BOT_TOKEN = "8653678456:AAEUFxjptitTYHPsbGVk-ep8qvoCNPvNaBU"
+BOT_TOKEN = "8843822482:AAHTNz67b2tNfVDbi5AaOHLZ25bVgmedXHs"
 API_ID    = 39052980
 API_HASH  = "5b0b6f9aedd2113a4a591dbcde61be43"
-ADMIN_ID  = 8624480309
+ADMIN_ID  = 8754582810
 
 CONFIG_FILE   = "config.json"
 PROGRESS_FILE = "progress.json"
