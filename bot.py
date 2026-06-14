@@ -29,7 +29,7 @@ from telegram.error import TelegramError, BadRequest
 # ═══════════════════════════════════════════════════════
 #  CONFIG
 # ═══════════════════════════════════════════════════════
-OT_TOKEN = "8665772753:AAFRtbriEZmQ2k68ofk7B2uynUxmUKNEiho"
+BOT_TOKEN = "8665772753:AAFRtbriEZmQ2k68ofk7B2uynUxmUKNEiho"
 ADMIN_IDS        = [8776447116, 8872309116]
 ADMIN_ID         = ADMIN_IDS[0]
 CHANNEL_ID       = -1002088619780
